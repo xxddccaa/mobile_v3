@@ -1,0 +1,20 @@
+# FastAPI 相关依赖
+fastapi
+uvicorn
+pydantic
+
+# Qwen 模型依赖
+qwen_agent
+qwen_vl_utils
+
+# 数据处理和图像处理
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 移动设备控制
+uiautomator2
+
+# 日志和工具
+python-dotenv>=1.0.0
+requests>=2.31.0
+
