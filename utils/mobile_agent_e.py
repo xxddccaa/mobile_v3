@@ -56,45 +56,45 @@ class BaseAgent(ABC):
 class Manager(BaseAgent):
 
     def get_prompt(self, info_pool: InfoPool) -> str:
-        prompt = "You are an agent who can operate an Android phone on behalf of a user. Your goal is to track progress and devise high-level plans to achieve the user's requests.\n\n"
+        prompt = "你是一个能够代表用户操作安卓手机的智能代理。你的目标是跟踪进度并制定高层计划来实现用户的请求。\n\n"
         prompt += "### User Request ###\n"
         prompt += f"{info_pool.instruction}\n\n"
 
         task_specific_note = ""
         if ".html" in info_pool.instruction:
-            task_specific_note = "NOTE: The .html file may contain additional interactable elements, such as a drawing canvas or a game. Do not open other apps without completing the task in the .html file."
+            task_specific_note = "注意：.html文件可能包含额外的可交互元素，例如绘图画布或游戏。在完成.html文件中的任务之前，不要打开其他应用。"
         elif "Audio Recorder" in info_pool.instruction:
-            task_specific_note = "NOTE: The stop recording icon is a white square, located fourth from the left at the bottom. Please do not click the circular pause icon in the middle."
+            task_specific_note = "注意：停止录音图标是一个白色方块，位于底部从左数第四个位置。请不要点击中间的圆形暂停图标。"
 
         if info_pool.plan == "":
             # first time planning
             prompt += "---\n"
-            prompt += "Make a high-level plan to achieve the user's request. If the request is complex, break it down into subgoals. The screenshot displays the starting state of the phone.\n"
-            prompt += "IMPORTANT: For requests that explicitly require an answer, always add 'perform the `answer` action' as the last step to the plan!\n\n"
+            prompt += "制定一个高层计划来实现用户的请求。如果请求比较复杂，请将其分解为子目标。截图显示了手机的初始状态。\n"
+            prompt += "重要提示：对于明确要求回答的请求，始终要在计划的最后一步添加'执行answer动作'！\n\n"
             if task_specific_note != "":
                 prompt += f"{task_specific_note}\n\n"
             
             prompt += "### Guidelines ###\n"
-            prompt += "The following guidelines will help you plan this request.\n"
-            prompt += "General:\n"
-            prompt += "Use search to quickly find a file or entry with a specific name, if search function is applicable.\n"
-            prompt += "Task-specific:\n"
+            prompt += "以下指导原则将帮助你规划此请求。\n"
+            prompt += "通用原则：\n"
+            prompt += "如果搜索功能适用，使用搜索快速找到具有特定名称的文件或条目。\n"
+            prompt += "任务特定原则：\n"
             if info_pool.additional_knowledge_manager != "":
                 prompt += f"{info_pool.additional_knowledge_manager}\n\n"
             else:
                 prompt += f"{info_pool.add_info_token}\n\n"
             
-            prompt += "Provide your output in the following format which contains two parts:\n"
+            prompt += "请按以下格式提供你的输出，包含两个部分：\n"
             prompt += "### Thought ###\n"
-            prompt += "A detailed explanation of your rationale for the plan and subgoals.\n\n"
+            prompt += "详细解释你制定计划和子目标的理由。\n\n"
             prompt += "### Plan ###\n"
-            prompt += "1. first subgoal\n"
-            prompt += "2. second subgoal\n"
+            prompt += "1. 第一个子目标\n"
+            prompt += "2. 第二个子目标\n"
             prompt += "...\n"
         else:
             if info_pool.completed_plan != "No completed subgoal.":
                 prompt += "### Historical Operations ###\n"
-                prompt += "Operations that have been completed before:\n"
+                prompt += "之前已完成的操作：\n"
                 prompt += f"{info_pool.completed_plan}\n\n"
             prompt += "### Plan ###\n"
             prompt += f"{info_pool.plan}\n\n"
@@ -106,40 +106,40 @@ class Manager(BaseAgent):
             if info_pool.important_notes != "":
                 prompt += f"{info_pool.important_notes}\n\n"
             else:
-                prompt += "No important notes recorded.\n\n"
+                prompt += "没有记录重要笔记。\n\n"
             prompt += "### Guidelines ###\n"
-            prompt += "The following guidelines will help you plan this request.\n"
-            prompt += "General:\n"
-            prompt += "Use search to quickly find a file or entry with a specific name, if search function is applicable.\n"
-            prompt += "Task-specific:\n"
+            prompt += "以下指导原则将帮助你规划此请求。\n"
+            prompt += "通用原则：\n"
+            prompt += "如果搜索功能适用，使用搜索快速找到具有特定名称的文件或条目。\n"
+            prompt += "任务特定原则：\n"
             if info_pool.additional_knowledge_manager != "":
                 prompt += f"{info_pool.additional_knowledge_manager}\n\n"
             else:
                 prompt += f"{info_pool.add_info_token}\n\n"
             if info_pool.error_flag_plan:
                 prompt += "### Potentially Stuck! ###\n"
-                prompt += "You have encountered several failed attempts. Here are some logs:\n"
+                prompt += "你已经遇到了多次失败的尝试。以下是一些日志：\n"
                 k = info_pool.err_to_manager_thresh
                 recent_actions = info_pool.action_history[-k:]
                 recent_summaries = info_pool.summary_history[-k:]
                 recent_err_des = info_pool.error_descriptions[-k:]
                 for i, (act, summ, err_des) in enumerate(zip(recent_actions, recent_summaries, recent_err_des)):
-                    prompt += f"- Attempt: Action: {act} | Description: {summ} | Outcome: Failed | Feedback: {err_des}\n"
+                    prompt += f"- 尝试：动作：{act} | 描述：{summ} | 结果：失败 | 反馈：{err_des}\n"
 
             prompt += "---\n"
-            prompt += "Carefully assess the current status and the provided screenshot. Check if the current plan needs to be revised.\n Determine if the user request has been fully completed. If you are confident that no further actions are required, mark the plan as \"Finished\" in your output. If the user request is not finished, update the plan. If you are stuck with errors, think step by step about whether the overall plan needs to be revised to address the error.\n"
-            prompt += "NOTE: 1. If the current situation prevents proceeding with the original plan or requires clarification from the user, make reasonable assumptions and revise the plan accordingly. Act as though you are the user in such cases. 2. Please refer to the helpful information and steps in the Guidelines first for planning. 3. If the first subgoal in plan has been completed, please update the plan in time according to the screenshot and progress to ensure that the next subgoal is always the first item in the plan. 4. If the first subgoal is not completed, please copy the previous round's plan or update the plan based on the completion of the subgoal.\n"
-            prompt += "IMPORTANT: If the next steps require an `answer` action, make sure that there is a plan to perform the `answer` action. In this case, you should not mark the plan as \"Finished\" unless the last action is `answer`.\n"
+            prompt += "仔细评估当前状态和提供的截图。检查当前计划是否需要修订。\n 判断用户请求是否已完全完成。如果你确信不再需要进一步的操作，请在输出中将计划标记为'Finished'。如果用户请求尚未完成，请更新计划。如果你遇到错误而陷入困境，请逐步思考是否需要修订整体计划以解决错误。\n"
+            prompt += "注意：1. 如果当前情况阻止了原计划的进行或需要用户澄清，请做出合理的假设并相应地修订计划。在这种情况下，表现得就像你是用户一样。2. 请首先参考指导原则中的有用信息和步骤进行规划。3. 如果计划中的第一个子目标已经完成，请根据截图和进度及时更新计划，确保下一个子目标始终是计划中的第一项。4. 如果第一个子目标尚未完成，请复制上一轮的计划或根据子目标的完成情况更新计划。\n"
+            prompt += "重要提示：如果接下来的步骤需要answer动作，请确保计划中包含执行answer动作的步骤。在这种情况下，除非最后一个动作是answer，否则不应将计划标记为'Finished'。\n"
             if task_specific_note != "":
               prompt += f"{task_specific_note}\n\n"
 
-            prompt += "Provide your output in the following format, which contains three parts:\n\n"
+            prompt += "请按以下格式提供你的输出，包含三个部分：\n\n"
             prompt += "### Thought ###\n"
-            prompt += "An explanation of your rationale for the updated plan and current subgoal.\n\n"
+            prompt += "解释你对更新后的计划和当前子目标的理由。\n\n"
             prompt += "### Historical Operations ###\n"
-            prompt += "Try to add the most recently completed subgoal on top of the existing historical operations. Please do not delete any existing historical operation. If there is no newly completed subgoal, just copy the existing historical operations.\n\n"
+            prompt += "尝试将最近完成的子目标添加到现有历史操作的顶部。请不要删除任何现有的历史操作。如果没有新完成的子目标，只需复制现有的历史操作。\n\n"
             prompt += "### Plan ###\n"
-            prompt += "Please update or copy the existing plan according to the current page and progress. Please pay close attention to the historical operations. Please do not repeat the plan of completed content unless you can judge from the screen status that a subgoal is indeed not completed.\n"
+            prompt += "请根据当前页面和进度更新或复制现有计划。请密切关注历史操作。除非你能从屏幕状态判断某个子目标确实未完成，否则请不要重复已完成内容的计划。\n"
             
         return prompt
 
@@ -150,48 +150,52 @@ class Manager(BaseAgent):
         else:
             thought = response.split("### Thought")[-1].split("### Plan")[0].replace("\n", " ").replace("  ", " ").replace("###", "").strip()
             completed_subgoal = "No completed subgoal."
-        plan = response.split("### Plan")[-1].replace("\n", " ").replace("  ", " ").replace("###", "").strip()#.split("### Current Subgoal")[0].replace("\n", " ").replace("  ", " ").replace("###", "").strip()
-        return {"thought": thought, "completed_subgoal": completed_subgoal,  "plan": plan}#, "current_subgoal": current_subgoal
+        plan = response.split("### Plan")[-1].replace("\n", " ").replace("  ", " ").replace("###", "").strip()
+        return {"thought": thought, "completed_subgoal": completed_subgoal,  "plan": plan}
 
 from utils.new_json_action import *
 
 ATOMIC_ACTION_SIGNITURES_noxml = {
     ANSWER: {
         "arguments": ["text"],
-        "description": lambda info: "Answer user's question. Usage example: {\"action\": \"answer\", \"text\": \"the content of your answer\"}"
+        "description": lambda info: "回答用户的问题。使用示例：{\"action\": \"answer\", \"text\": \"你的答案内容\"}"
     },
     CLICK: {
         "arguments": ["coordinate"],
-        "description": lambda info: "Click the point on the screen with specified (x, y) coordinates. Usage Example: {\"action\": \"click\", \"coordinate\": [x, y]}"
+        "description": lambda info: "点击屏幕上指定(x, y)坐标的位置。使用示例：{\"action\": \"click\", \"coordinate\": [x, y]}"
     },
     LONG_PRESS: {
         "arguments": ["coordinate"],
-        "description": lambda info: "Long press on the position (x, y) on the screen. Usage Example: {\"action\": \"long_press\", \"coordinate\": [x, y]}"
+        "description": lambda info: "长按屏幕上的(x, y)位置。使用示例：{\"action\": \"long_press\", \"coordinate\": [x, y]}"
     },
     TYPE: {
         "arguments": ["text"],
-        "description": lambda info: "Type text into current activated input box or text field. If you have activated the input box, you can see the words \"ADB Keyboard {on}\" at the bottom of the screen. If not, click the input box to confirm again. Please make sure the correct input box has been activated before typing. Usage Example: {\"action\": \"type\", \"text\": \"the text you want to type\"}"
+        "description": lambda info: "在当前激活的输入框或文本字段中输入文本。如果你已激活输入框，可以在屏幕底部看到\"ADB Keyboard {on}\"字样。如果没有，请再次点击输入框进行确认。在输入之前，请确保正确的输入框已被激活。使用示例：{\"action\": \"type\", \"text\": \"你想输入的文本\"}"
     },
     SYSTEM_BUTTON: {
         "arguments": ["button"],
-        "description": lambda info: "Press a system button, including back, home, and enter. Usage example: {\"action\": \"system_button\", \"button\": \"Home\"}"
+        "description": lambda info: "按下系统按钮，包括返回(Back)、主页(Home)和回车(Enter)。使用示例：{\"action\": \"system_button\", \"button\": \"Home\"}"
     },
     SWIPE: {
         "arguments": ["coordinate", "coordinate2"],
-        "description": lambda info: "Scroll from the position with coordinate to the position with coordinate2. Please make sure the start and end points of your swipe are within the swipeable area and away from the keyboard (y1 < 1400). Usage Example: {\"action\": \"swipe\", \"coordinate\": [x1, y1], \"coordinate2\": [x2, y2]}"
+        "description": lambda info: "从coordinate位置滑动到coordinate2位置。请确保滑动的起点和终点位于可滑动区域内，并远离键盘(y1 < 1400)。使用示例：{\"action\": \"swipe\", \"coordinate\": [x1, y1], \"coordinate2\": [x2, y2]}"
     },
     OPEN_APP: {
         "arguments": ["text"],
-        "description": lambda info: "Directly open an application by its name or package name. This is faster than clicking the app icon. Supports common app names in Chinese and English (e.g., '微博', 'weibo', 'WeChat', '微信'). Usage Example: {\"action\": \"open_app\", \"text\": \"微博\"}"
+        "description": lambda info: "通过应用名称或包名直接打开应用。这比点击应用图标更快。支持中英文常见应用名称（例如，'微博'、'weibo'、'WeChat'、'微信'）。使用示例：{\"action\": \"open_app\", \"text\": \"微博\"}"
+    },
+    WAIT: {
+        "arguments": ["time"],
+        "description": lambda info: "等待指定的秒数。适用于等待页面加载、动画或网络请求完成。使用示例：{\"action\": \"wait\", \"time\": 3}"
     }
 }
 
-INPUT_KNOW = "If you've activated an input field, you'll see \"ADB Keyboard {on}\" at the bottom of the screen. This phone doesn't display a soft keyboard. So, if you see \"ADB Keyboard {on}\" at the bottom of the screen, it means you can type. Otherwise, you'll need to tap the correct input field to activate it."
+INPUT_KNOW = "如果你已激活了一个输入字段，你会在屏幕底部看到\"ADB Keyboard {on}\"。这款手机不显示软键盘。所以，如果你在屏幕底部看到\"ADB Keyboard {on}\"，就意味着你可以输入文本。否则，你需要点击正确的输入字段来激活它。"
 
 class Executor(BaseAgent):
 
     def get_prompt(self, info_pool: InfoPool) -> str:
-        prompt = "You are an agent who can operate an Android phone on behalf of a user. Your goal is to decide the next action to perform based on the current state of the phone and the user's request.\n\n"
+        prompt = "你是一个能够代表用户操作安卓手机的智能代理。你的目标是根据手机的当前状态和用户的请求来决定下一步要执行的动作。\n\n"
 
         prompt += "### User Request ###\n"
         prompt += f"{info_pool.instruction}\n\n"
@@ -210,24 +214,24 @@ class Executor(BaseAgent):
         if info_pool.progress_status != "":
             prompt += f"{info_pool.progress_status}\n\n"
         else:
-            prompt += "No progress yet.\n\n"
+            prompt += "尚无进度。\n\n"
 
         if info_pool.additional_knowledge_executor != "":
             prompt += "### Guidelines ###\n"
             prompt += f"{info_pool.additional_knowledge_executor}\n"
 
         if "exact duplicates" in info_pool.instruction:
-            prompt += "Task-specific:\nOnly two items with the same name, date, and details can be considered duplicates.\n\n"
+            prompt += "任务特定原则：\n只有具有相同名称、日期和详细信息的两个项目才能被视为重复项。\n\n"
         elif "Audio Recorder" in info_pool.instruction:
-            prompt += "Task-specific:\nThe stop recording icon is a white square, located fourth from the left at the bottom. Please do not click the circular pause icon in the middle.\n\n"
+            prompt += "任务特定原则：\n停止录音图标是一个白色方块，位于底部从左数第四个位置。请不要点击中间的圆形暂停图标。\n\n"
         else:
             prompt += "\n"
         
         prompt += "---\n"        
-        prompt += "Carefully examine all the information provided above and decide on the next action to perform. If you notice an unsolved error in the previous action, think as a human user and attempt to rectify them. You must choose your action from one of the atomic actions.\n\n"
+        prompt += "仔细检查上面提供的所有信息，并决定要执行的下一个动作。如果你注意到上一个动作中存在未解决的错误，请像人类用户一样思考并尝试纠正它们。你必须从原子动作中选择你的动作。\n\n"
         
         prompt += "#### Atomic Actions ####\n"
-        prompt += "The atomic action functions are listed in the format of `action(arguments): description` as follows:\n"
+        prompt += "原子动作函数以`动作(参数): 描述`的格式列出如下：\n"
 
         for action, value in ATOMIC_ACTION_SIGNITURES_noxml.items():
             prompt += f"- {action}({', '.join(value['arguments'])}): {value['description'](info_pool)}\n"
@@ -235,7 +239,7 @@ class Executor(BaseAgent):
         prompt += "\n"
         prompt += "### Latest Action History ###\n"
         if info_pool.action_history != []:
-            prompt += "Recent actions you took previously and whether they were successful:\n"
+            prompt += "你之前执行的最近动作以及它们是否成功：\n"
             num_actions = min(5, len(info_pool.action_history))
             latest_actions = info_pool.action_history[-num_actions:]
             latest_summary = info_pool.summary_history[-num_actions:]
@@ -244,29 +248,29 @@ class Executor(BaseAgent):
             action_log_strs = []
             for act, summ, outcome, err_des in zip(latest_actions, latest_summary, latest_outcomes, error_descriptions):
                 if outcome == "A":
-                    action_log_str = f"Action: {act} | Description: {summ} | Outcome: Successful\n"
+                    action_log_str = f"动作：{act} | 描述：{summ} | 结果：成功\n"
                 else:
-                    action_log_str = f"Action: {act} | Description: {summ} | Outcome: Failed | Feedback: {err_des}\n"
+                    action_log_str = f"动作：{act} | 描述：{summ} | 结果：失败 | 反馈：{err_des}\n"
                 prompt += action_log_str
                 action_log_strs.append(action_log_str)
             
             prompt += "\n"
         else:
-            prompt += "No actions have been taken yet.\n\n"
+            prompt += "尚未执行任何动作。\n\n"
 
         prompt += "---\n"
-        prompt += "IMPORTANT:\n1. Do NOT repeat previously failed actions multiple times. Try changing to another action.\n"
-        prompt += "2. Please prioritize the current subgoal.\n\n"
-        prompt += "Provide your output in the following format, which contains three parts:\n"
+        prompt += "重要提示：\n1. 不要多次重复之前失败的动作。尝试改变为另一个动作。\n"
+        prompt += "2. 请优先考虑当前的子目标。\n\n"
+        prompt += "请按以下格式提供你的输出，包含三个部分：\n"
         prompt += "### Thought ###\n"
-        prompt += "Provide a detailed explanation of your rationale for the chosen action.\n\n"
+        prompt += "详细解释你选择该动作的理由。\n\n"
 
         prompt += "### Action ###\n"
-        prompt += "Choose only one action or shortcut from the options provided.\n"
-        prompt += "You must provide your decision using a valid JSON format specifying the `action` and the arguments of the action. For example, if you want to type some text, you should write {\"action\":\"type\", \"text\": \"the text you want to type\"}.\n\n"
+        prompt += "从提供的选项中只选择一个动作或快捷方式。\n"
+        prompt += "你必须使用有效的JSON格式提供你的决定，指定`action`和动作的参数。例如，如果你想输入一些文本，你应该写{\"action\":\"type\", \"text\": \"你想输入的文本\"}。\n\n"
         
         prompt += "### Description ###\n"
-        prompt += "A brief description of the chosen action. Do not describe expected outcome.\n"
+        prompt += "对所选动作的简要描述。不要描述预期结果。\n"
         return prompt
 
     def parse_response(self, response: str) -> dict:
@@ -278,7 +282,7 @@ class Executor(BaseAgent):
 class ActionReflector(BaseAgent):
 
     def get_prompt(self, info_pool: InfoPool) -> str:
-        prompt = "You are an agent who can operate an Android phone on behalf of a user. Your goal is to verify whether the last action produced the expected behavior and to keep track of the overall progress.\n\n"
+        prompt = "你是一个能够代表用户操作安卓手机的智能代理。你的目标是验证上一个动作是否产生了预期的行为，并跟踪整体进度。\n\n"
 
         prompt += "### User Request ###\n"
         prompt += f"{info_pool.instruction}\n\n"
@@ -287,29 +291,29 @@ class ActionReflector(BaseAgent):
         if info_pool.completed_plan != "":
             prompt += f"{info_pool.completed_plan}\n\n"
         else:
-            prompt += "No progress yet.\n\n"
+            prompt += "尚无进度。\n\n"
 
         prompt += "---\n"
-        prompt += "The two attached images are phone screenshots taken before and after your last action. \n"
+        prompt += "附加的两张图片是在你最后一个动作之前和之后拍摄的手机截图。\n"
 
         prompt += "---\n"
         prompt += "### Latest Action ###\n"
-        prompt += f"Action: {info_pool.last_action}\n"
-        prompt += f"Expectation: {info_pool.last_summary}\n\n"
+        prompt += f"动作：{info_pool.last_action}\n"
+        prompt += f"预期：{info_pool.last_summary}\n\n"
 
         prompt += "---\n"
-        prompt += "Carefully examine the information provided above to determine whether the last action produced the expected behavior. If the action was successful, update the progress status accordingly. If the action failed, identify the failure mode and provide reasoning on the potential reason causing this failure.\n\n"
-        prompt += "Note: For swiping to scroll the screen to view more content, if the content displayed before and after the swipe is exactly the same, the swipe is considered to be C: Failed. The last action produces no changes. This may be because the content has been scrolled to the bottom.\n\n"
+        prompt += "仔细检查上面提供的信息，以确定上一个动作是否产生了预期的行为。如果动作成功，请相应地更新进度状态。如果动作失败，请识别失败模式并提供导致此失败的潜在原因。\n\n"
+        prompt += "注意：对于滑动以滚动屏幕查看更多内容，如果滑动前后显示的内容完全相同，则滑动被视为C：失败。上一个动作没有产生变化。这可能是因为内容已滚动到底部。\n\n"
 
-        prompt += "Provide your output in the following format containing two parts:\n"
+        prompt += "请按以下格式提供你的输出，包含两个部分：\n"
         prompt += "### Outcome ###\n"
-        prompt += "Choose from the following options. Give your response as \"A\", \"B\" or \"C\":\n"
-        prompt += "A: Successful or Partially Successful. The result of the last action meets the expectation.\n"
-        prompt += "B: Failed. The last action results in a wrong page. I need to return to the previous state.\n"
-        prompt += "C: Failed. The last action produces no changes.\n\n"
+        prompt += "从以下选项中选择。将你的回答提供为\"A\"、\"B\"或\"C\"：\n"
+        prompt += "A：成功或部分成功。上一个动作的结果符合预期。\n"
+        prompt += "B：失败。上一个动作导致进入错误的页面。我需要返回到之前的状态。\n"
+        prompt += "C：失败。上一个动作没有产生任何变化。\n\n"
 
         prompt += "### Error Description ###\n"
-        prompt += "If the action failed, provide a detailed description of the error and the potential reason causing this failure. If the action succeeded, put \"None\" here.\n"
+        prompt += "如果动作失败，请提供错误的详细描述以及导致此失败的潜在原因。如果动作成功，请在此处填写\"None\"。\n"
 
         return prompt
 
@@ -321,7 +325,7 @@ class ActionReflector(BaseAgent):
 class Notetaker(BaseAgent):
 
     def get_prompt(self, info_pool: InfoPool) -> str:
-        prompt = "You are a helpful AI assistant for operating mobile phones. Your goal is to take notes of important content relevant to the user's request.\n\n"
+        prompt = "你是一个帮助操作手机的AI助手。你的目标是记录与用户请求相关的重要内容。\n\n"
 
         prompt += "### User Request ###\n"
         prompt += f"{info_pool.instruction}\n\n"
@@ -333,20 +337,20 @@ class Notetaker(BaseAgent):
         if info_pool.important_notes != "":
             prompt += f"{info_pool.important_notes}\n\n"
         else:
-            prompt += "No important notes recorded.\n\n"
+            prompt += "没有记录重要笔记。\n\n"
 
         if "transactions" in info_pool.instruction and "Simple Gallery" in info_pool.instruction:
-            prompt += "### Guideline ###\nYou can only record the transaction information in DCIM, because the other transactions are irrelevant to the task.\n"
+            prompt += "### Guideline ###\n你只能记录DCIM中的交易信息，因为其他交易与任务无关。\n"
         elif "enter their product" in info_pool.instruction:
-            prompt += "### Guideline ###\nPlease record the number that appears each time so that you can calculate their product at the end.\n"
+            prompt += "### Guideline ###\n请记录每次出现的数字，以便你可以在最后计算它们的乘积。\n"
         
         prompt += "---\n"
-        prompt += "Carefully examine the information above to identify any important content on the current screen that needs to be recorded.\n"
-        prompt += "IMPORTANT:\nDo not take notes on low-level actions; only keep track of significant textual or visual information relevant to the user's request. Do not repeat user request or progress status. Do not make up content that you are not sure about.\n\n"
+        prompt += "仔细检查上面的信息，识别当前屏幕上需要记录的任何重要内容。\n"
+        prompt += "重要提示：\n不要记录低级别的动作；只跟踪与用户请求相关的重要文本或视觉信息。不要重复用户请求或进度状态。不要编造你不确定的内容。\n\n"
 
-        prompt += "Provide your output in the following format:\n"
+        prompt += "请按以下格式提供你的输出：\n"
         prompt += "### Important Notes ###\n"
-        prompt += "The updated important notes, combining the old and new ones. If nothing new to record, copy the existing important notes.\n"
+        prompt += "更新后的重要笔记，结合新旧笔记。如果没有新内容要记录，请复制现有的重要笔记。\n"
 
         return prompt
 

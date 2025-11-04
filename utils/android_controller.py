@@ -45,71 +45,277 @@ class AndroidController(Controller):
                 self.u2_device = None
 
     def get_screenshot(self, save_path):
-        command = self.adb_path + " shell rm /sdcard/screenshot.png"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
-        time.sleep(0.5)
-        command = self.adb_path + " shell screencap -p /sdcard/screenshot.png"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
-        time.sleep(0.5)
-        command = self.adb_path + f" pull /sdcard/screenshot.png {save_path}"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
+        """
+        获取设备截图
+        优先使用 uiautomator2（如果可用），否则使用 ADB 命令
+        """
+        # 方法1: 使用 uiautomator2 截图（推荐，更稳定）
+        if self.u2_device:
+            try:
+                # 确保保存目录存在
+                save_dir = os.path.dirname(save_path)
+                if save_dir and not os.path.exists(save_dir):
+                    os.makedirs(save_dir, exist_ok=True)
+                
+                # 使用 uiautomator2 截图
+                screenshot = self.u2_device.screenshot()
+                screenshot.save(save_path)
+                
+                if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                    return True
+                else:
+                    print(f"Warning: uiautomator2 screenshot saved but file is empty or missing")
+            except Exception as e:
+                print(f"Warning: uiautomator2 screenshot failed ({e}), falling back to ADB method")
         
-        if not os.path.exists(save_path):
+        # 方法2: 使用 ADB 命令截图（备用方案）
+        try:
+            # 确保保存目录存在
+            save_dir = os.path.dirname(save_path)
+            if save_dir and not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+            
+            # 删除旧的截图文件
+            rm_command = f"{self.adb_path} shell rm -f /sdcard/screenshot.png"
+            rm_result = subprocess.run(rm_command, capture_output=True, text=True, shell=True)
+            if rm_result.returncode != 0:
+                print(f"Warning: Failed to remove old screenshot: {rm_result.stderr}")
+            time.sleep(0.3)
+            
+            # 截图到设备
+            screencap_command = f"{self.adb_path} shell screencap -p /sdcard/screenshot.png"
+            screencap_result = subprocess.run(screencap_command, capture_output=True, text=True, shell=True)
+            if screencap_result.returncode != 0:
+                print(f"Error: screencap command failed: {screencap_result.stderr}")
+                return False
+            time.sleep(0.5)
+            
+            # 从设备拉取截图
+            pull_command = f"{self.adb_path} pull /sdcard/screenshot.png \"{save_path}\""
+            pull_result = subprocess.run(pull_command, capture_output=True, text=True, shell=True)
+            if pull_result.returncode != 0:
+                print(f"Error: pull command failed: {pull_result.stderr}")
+                return False
+            
+            # 验证文件是否存在且不为空
+            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
+                return True
+            else:
+                print(f"Error: Screenshot file missing or empty: {save_path}")
+                return False
+                
+        except Exception as e:
+            print(f"Error: Screenshot failed with exception: {e}")
             return False
-        else:
-            return True
 
     def tap(self, x, y):
-        command = self.adb_path + f" shell input tap {x} {y}"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
+        """
+        点击屏幕坐标
+        优先使用 ADB 命令（更稳定），uiautomator2 作为备用
+        """
+        # 方法1: 使用 ADB 命令点击（主要方案，更稳定）
+        try:
+            command = self.adb_path + f" shell input tap {x} {y}"
+            result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                return
+            else:
+                print(f"Warning: ADB tap failed, trying uiautomator2")
+        except Exception as e:
+            print(f"Warning: ADB tap failed ({e}), trying uiautomator2")
+        
+        # 方法2: 使用 uiautomator2 点击（备用方案）
+        if self.u2_device:
+            try:
+                self.u2_device.click(x, y)
+            except Exception as e:
+                print(f"Error: uiautomator2 click also failed ({e})")
 
     def type(self, text):
         """
         输入文本，优先使用 uiautomator2（支持中文），回退到 ADB 方式
+        输入前会先清空输入框中的现有文本
         """
         # 方法1: 使用 uiautomator2 输入（推荐，支持中文）
         if self.u2_device:
             try:
                 # 处理换行符
                 text_to_send = text.replace("\\n", "\n")
-                # uiautomator2 直接支持中文和所有字符
-                self.u2_device.send_keys(text_to_send, clear=False)
-                print(f"✓ Text input via uiautomator2: {text[:50]}{'...' if len(text) > 50 else ''}")
-                return
+                
+                # 启用快速输入法（FastInputIME）- 对中文输入很重要
+                try:
+                    self.u2_device.set_fastinput_ime(True)
+                    time.sleep(0.1)  # 等待输入法切换
+                except Exception as ime_err:
+                    print(f"Warning: Failed to set FastInputIME: {ime_err}, continuing anyway...")
+                
+                # 清空输入框并输入文本（一步完成，更稳定）
+                try:
+                    # 使用 clear_text() + send_keys() 的组合方式（最可靠）
+                    self.u2_device.clear_text()
+                    time.sleep(0.2)  # 等待清空完成
+                    self.u2_device.send_keys(text_to_send)
+                    time.sleep(0.2)  # 等待输入完成
+                    
+                    print(f"✓ Text input via uiautomator2: {text[:50]}{'...' if len(text) > 50 else ''}")
+                    return
+                    
+                except AttributeError:
+                    # 如果没有 clear_text 方法，使用 send_keys 的 clear 参数
+                    print("Using send_keys with clear=True (fallback method)")
+                    self.u2_device.send_keys(text_to_send, clear=True)
+                    time.sleep(0.3)
+                    
+                    print(f"✓ Text input via uiautomator2: {text[:50]}{'...' if len(text) > 50 else ''}")
+                    return
+                    
             except Exception as e:
-                print(f"Warning: uiautomator2 input failed ({e}), falling back to ADB method")
+                error_msg = str(e)
+                print(f"Warning: uiautomator2 input failed ({error_msg})")
+                print(f"  Input text: {text}")
+                print(f"  Falling back to ADB method...")
+                # 不 return，继续执行 ADB 方法
         
         # 方法2: 回退到原有的 ADB 方式（需要 ADB Keyboard 支持中文）
         print("Using ADB input method (ADB Keyboard required for Chinese)")
+        print(f"Warning: ADB method may not support Chinese characters. Text to input: '{text}'")
+        
+        # 检查是否包含中文字符
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+        if has_chinese:
+            print("Error: Text contains Chinese characters, but ADB method requires ADB Keyboard.")
+            print("Please ensure uiautomator2 is working properly or install ADB Keyboard.")
+            print("Attempting to input anyway, but Chinese characters may fail...")
+        
+        # 先清空输入框：全选 + 删除
+        try:
+            # Ctrl+A (全选) - keycode 113
+            command = self.adb_path + f" shell input keyevent 113"
+            subprocess.run(command, capture_output=True, text=True, shell=True)
+            time.sleep(0.1)
+            # Delete (删除) - keycode 67
+            command = self.adb_path + f" shell input keyevent 67"
+            subprocess.run(command, capture_output=True, text=True, shell=True)
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"Warning: Failed to clear input field: {e}")
+        
+        # 输入文本
         text = text.replace("\\n", "_").replace("\n", "_")
+        successful_chars = 0
+        failed_chars = []
+        
         for char in text:
-            if char == ' ':
-                command = self.adb_path + f" shell input text %s"
-                subprocess.run(command, capture_output=True, text=True, shell=True)
-            elif char == '_':
-                command = self.adb_path + f" shell input keyevent 66"
-                subprocess.run(command, capture_output=True, text=True, shell=True)
-            elif 'a' <= char <= 'z' or 'A' <= char <= 'Z' or char.isdigit():
-                command = self.adb_path + f" shell input text {char}"
-                subprocess.run(command, capture_output=True, text=True, shell=True)
-            elif char in '-.,!?@\'°/:;()':
-                command = self.adb_path + f" shell input text \"{char}\""
-                subprocess.run(command, capture_output=True, text=True, shell=True)
-            else:
-                command = self.adb_path + f" shell am broadcast -a ADB_INPUT_TEXT --es msg \"{char}\""
-                subprocess.run(command, capture_output=True, text=True, shell=True)
+            try:
+                if char == ' ':
+                    command = self.adb_path + f" shell input text %s"
+                    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+                    if result.returncode == 0:
+                        successful_chars += 1
+                elif char == '_':
+                    command = self.adb_path + f" shell input keyevent 66"
+                    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+                    if result.returncode == 0:
+                        successful_chars += 1
+                elif 'a' <= char <= 'z' or 'A' <= char <= 'Z' or char.isdigit():
+                    command = self.adb_path + f" shell input text {char}"
+                    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+                    if result.returncode == 0:
+                        successful_chars += 1
+                    else:
+                        failed_chars.append(char)
+                elif char in '-.,!?@\'°/:;()':
+                    command = self.adb_path + f" shell input text \"{char}\""
+                    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+                    if result.returncode == 0:
+                        successful_chars += 1
+                    else:
+                        failed_chars.append(char)
+                else:
+                    # 中文字符或其他特殊字符，需要 ADB Keyboard
+                    command = self.adb_path + f" shell am broadcast -a ADB_INPUT_TEXT --es msg \"{char}\""
+                    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+                    if result.returncode == 0:
+                        successful_chars += 1
+                    else:
+                        failed_chars.append(char)
+                time.sleep(0.05)  # 每个字符之间稍作延迟
+            except Exception as e:
+                failed_chars.append(char)
+                print(f"Warning: Failed to input character '{char}': {e}")
+        
+        if failed_chars:
+            print(f"Warning: Failed to input {len(failed_chars)} characters: {failed_chars}")
+            print(f"Successfully input {successful_chars}/{len(text)} characters")
 
     def slide(self, x1, y1, x2, y2):
-        command = self.adb_path + f" shell input swipe {x1} {y1} {x2} {y2} 500"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
+        """
+        滑动屏幕
+        优先使用 ADB 命令（更稳定），uiautomator2 作为备用
+        """
+        # 方法1: 使用 ADB 命令滑动（主要方案，更稳定）
+        try:
+            command = self.adb_path + f" shell input swipe {x1} {y1} {x2} {y2} 500"
+            result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                return
+            else:
+                print(f"Warning: ADB swipe failed, trying uiautomator2")
+        except Exception as e:
+            print(f"Warning: ADB swipe failed ({e}), trying uiautomator2")
+        
+        # 方法2: 使用 uiautomator2 滑动（备用方案）
+        if self.u2_device:
+            try:
+                self.u2_device.swipe(x1, y1, x2, y2, duration=0.5)
+            except Exception as e:
+                print(f"Error: uiautomator2 swipe also failed ({e})")
 
     def back(self):
-        command = self.adb_path + f" shell input keyevent 4"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
+        """
+        按返回键
+        优先使用 ADB 命令（更稳定），uiautomator2 作为备用
+        """
+        # 方法1: 使用 ADB 命令按键（主要方案，更稳定）
+        try:
+            command = self.adb_path + f" shell input keyevent 4"
+            result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                return
+            else:
+                print(f"Warning: ADB back failed, trying uiautomator2")
+        except Exception as e:
+            print(f"Warning: ADB back failed ({e}), trying uiautomator2")
+        
+        # 方法2: 使用 uiautomator2 按键（备用方案）
+        if self.u2_device:
+            try:
+                self.u2_device.press("back")
+            except Exception as e:
+                print(f"Error: uiautomator2 back also failed ({e})")
 
     def home(self):
-        command = self.adb_path + f" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME"
-        subprocess.run(command, capture_output=True, text=True, shell=True)
+        """
+        按 Home 键
+        优先使用 ADB 命令（更稳定），uiautomator2 作为备用
+        """
+        # 方法1: 使用 ADB 命令按键（主要方案，更稳定）
+        try:
+            command = self.adb_path + f" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME"
+            result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            if result.returncode == 0:
+                return
+            else:
+                print(f"Warning: ADB home failed, trying uiautomator2")
+        except Exception as e:
+            print(f"Warning: ADB home failed ({e}), trying uiautomator2")
+        
+        # 方法2: 使用 uiautomator2 按键（备用方案）
+        if self.u2_device:
+            try:
+                self.u2_device.press("home")
+            except Exception as e:
+                print(f"Error: uiautomator2 home also failed ({e})")
 
     def get_clipboard(self):
         """
@@ -189,7 +395,17 @@ class AndroidController(Controller):
             print(f"未知应用: {app_identifier}，尝试使用原始名称")
             package_name = app_identifier
         
-        # 使用 monkey 命令启动应用
+        # 方法1: 使用 uiautomator2 打开应用（推荐，更稳定）
+        if self.u2_device:
+            try:
+                self.u2_device.app_start(package_name)
+                time.sleep(3)  # 等待应用完全启动
+                print(f"成功打开应用: {app_identifier} ({package_name})")
+                return True
+            except Exception as e:
+                print(f"Warning: uiautomator2 app_start failed ({e}), falling back to ADB method")
+        
+        # 方法2: 使用 ADB 命令打开应用（备用方案）
         command = self.adb_path + f" shell monkey -p {package_name} -c android.intent.category.LAUNCHER 1"
         result = subprocess.run(command, capture_output=True, text=True, shell=True)
         

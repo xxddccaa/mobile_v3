@@ -2,6 +2,7 @@
 logs/
 githubgit/
 gitlabgit/
+llama_factory_data/
 
 # Python 缓存文件
 __pycache__/

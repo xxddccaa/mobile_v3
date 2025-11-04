@@ -28,18 +28,28 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
         controller = HarmonyOSController(hdc_path)
 
     if not os.path.exists(log_path):
-        os.mkdir(log_path)
+        os.makedirs(log_path, exist_ok=True)
     
     now = datetime.now()
     time_str = now.strftime("%Y%m%d_%H%M%S")
-    save_path = f"{log_path}/{time_str}_{instruction[:10]}"
-    os.mkdir(save_path)
+    # 清理指令中的非法字符（Windows路径不允许的字符）
+    invalid_chars = '<>:"/\\|?*'
+    instruction_clean = instruction[:15]
+    for char in invalid_chars:
+        instruction_clean = instruction_clean.replace(char, '_')
+    # 替换空格为下划线
+    instruction_clean = instruction_clean.replace(' ', '_')
+    save_path = os.path.join(log_path, f"{time_str}_{instruction_clean}")
+    os.makedirs(save_path, exist_ok=True)
     image_save_path = os.path.join(save_path, "images")
-    os.mkdir(image_save_path)
+    os.makedirs(image_save_path, exist_ok=True)
 
+    # 将 add_info 和 INPUT_KNOW 合并传给操作层，这样操作层既有键盘提示，又有详细的操作步骤说明
+    executor_knowledge = INPUT_KNOW + "\n\n" + add_info if add_info else INPUT_KNOW
+    
     info_pool = InfoPool(
-        additional_knowledge_manager=add_info,
-        additional_knowledge_executor=INPUT_KNOW,
+        additional_knowledge_manager=add_info,  # 规划层使用 add_info
+        additional_knowledge_executor=executor_knowledge,  # 操作层使用合并后的知识
         err_to_manager_thresh=2
     )
     
@@ -105,7 +115,7 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
             )
         
         message_save_path = os.path.join(save_path, f"step_{step+1}")
-        os.mkdir(message_save_path)
+        os.makedirs(message_save_path, exist_ok=True)
         message_file = os.path.join(message_save_path, "manager.json")
         message_data = {"name": "manager", "messages": message_manager, "response": output_planning, "step_id": step+1}
         with open(message_file, 'w', encoding='utf-8') as json_file:
@@ -198,7 +208,7 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
                 controller.tap(action_object['coordinate'][0], action_object['coordinate'][1])
                 
                 # 检测是否点击了复制按钮
-                copy_keywords = ["复制", "copy", "复制按钮", "复制内容", "点击复制", "点击copy"]
+                copy_keywords = ["复制", "copy", "复制按钮", "复制内容", "点击复制", "Click on the copy icon", "Click the copy button"]
                 action_desc_lower = action_description.lower()
                 is_copy_action = any(keyword.lower() in action_desc_lower or keyword in action_description for keyword in copy_keywords)
                 
@@ -219,6 +229,12 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
                         print("="*80)
                         print(clipboard_content)
                         print("="*80 + "\n")
+                        
+                        # 保存 operator.json（在停止操作前保存）
+                        message_file = os.path.join(message_save_path, "operator.json")
+                        message_data = {"name": "operator", "messages": message_operator, "response": operator_response, "step_id": step+1}
+                        with open(message_file, 'w', encoding='utf-8') as json_file:
+                            json.dump(message_data, json_file, ensure_ascii=False, indent=4)
                         
                         # 保存粘贴板内容到结果文件
                         task_result_path = os.path.join(save_path, "task_result.json")
@@ -253,6 +269,11 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
                     success = controller.open_app(app_name)
                     if not success:
                         print(f"无法直接打开应用 {app_name}，请确保应用已安装或使用点击图标方式")
+            elif action_object['action'] == "wait":
+                # 等待指定的秒数
+                wait_time = action_object.get('time', 2)
+                print(f"等待 {wait_time} 秒...")
+                time.sleep(wait_time)
             
         except:
             info_pool.last_action = {"action": "invalid"}
