@@ -3,6 +3,7 @@ import uuid
 import json
 import time
 import argparse
+import ast
 from PIL import Image
 from datetime import datetime
 
@@ -172,7 +173,21 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
         print('Action description: ' + action_description)
 
         try:
-            action_object = json.loads(action_object_str)
+            action_object_raw = action_object_str
+            print(f"[ACTION_PARSE] raw: {action_object_raw}")
+            # 首先尝试 JSON 解析（标准格式，双引号）
+            try:
+                action_object = json.loads(action_object_str)
+                print(f"[ACTION_PARSE] json.loads success: {action_object}")
+            except Exception as e_json:
+                print(f"[ACTION_PARSE] json.loads failed: {e_json}")
+                # 尝试使用 ast.literal_eval 解析 Python 字面量（支持单引号）
+                try:
+                    action_object = ast.literal_eval(action_object_str)
+                    print(f"[ACTION_PARSE] ast.literal_eval success: {action_object}")
+                except Exception as e_ast:
+                    print(f"[ACTION_PARSE] literal_eval failed: {e_ast}")
+                    raise
             operator_response = f'''### Thought ###
 {action_thought}
 
@@ -200,12 +215,23 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
             
             if coor_type != "abs":
                 if "coordinate" in action_object:
-                    action_object['coordinate'] = [int(action_object['coordinate'][0] / 1000 * width), int(action_object['coordinate'][1] / 1000 * height)]
+                    cx, cy = action_object['coordinate']
+                    sx, sy = int(cx / 1000 * width), int(cy / 1000 * height)
+                    print(f"[COOR] scale from rel ({cx},{cy}) to abs ({sx},{sy}) with screen ({width}x{height})")
+                    action_object['coordinate'] = [sx, sy]
                 if "coordinate2" in action_object:
-                    action_object['coordinate2'] = [int(action_object['coordinate2'][0] / 1000 * width), int(action_object['coordinate2'][1] / 1000 * height)]
+                    cx2, cy2 = action_object['coordinate2']
+                    sx2, sy2 = int(cx2 / 1000 * width), int(cy2 / 1000 * height)
+                    print(f"[COOR] scale2 from rel ({cx2},{cy2}) to abs ({sx2},{sy2}) with screen ({width}x{height})")
+                    action_object['coordinate2'] = [sx2, sy2]
             
             if action_object['action'] == "click":
-                controller.tap(action_object['coordinate'][0], action_object['coordinate'][1])
+                x_exec, y_exec = action_object['coordinate'][0], action_object['coordinate'][1]
+                # 边界检查并记录
+                if x_exec < 0 or y_exec < 0 or x_exec >= width or y_exec >= height:
+                    print(f"[COOR] Warning: click out of screen: ({x_exec},{y_exec}) not in [0,{width})x[0,{height})")
+                print(f"[EXEC] click -> controller.tap({x_exec}, {y_exec}) | desc: {action_description}")
+                controller.tap(x_exec, y_exec)
                 
                 # 检测是否点击了复制按钮
                 copy_keywords = ["复制", "copy", "复制按钮", "复制内容", "点击复制", "Click on the copy icon", "Click the copy button"]
@@ -289,7 +315,8 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
         with open(message_file, 'w', encoding='utf-8') as json_file:
             json.dump(message_data, json_file, ensure_ascii=False, indent=4)
 
-        info_pool.last_action = json.loads(action_object_str)
+        # 使用已解析的动作对象，避免单引号字符串再次 json.loads 失败
+        info_pool.last_action = action_object
         
         if step == 0:
             time.sleep(8) # maybe a pop-up when first open an app
@@ -342,7 +369,8 @@ def run_instruction(adb_path, hdc_path, api_key, base_url, model, instruction, a
         print('Action reflection error description: ' + error_description)
         print('Action reflection progress status: ' + progress_status, "\n")
         
-        info_pool.action_history.append(json.loads(action_object_str))
+        # 记录历史时也使用已解析对象
+        info_pool.action_history.append(action_object)
         info_pool.summary_history.append(action_description)
         info_pool.action_outcomes.append(action_outcome)
         info_pool.error_descriptions.append(error_description)

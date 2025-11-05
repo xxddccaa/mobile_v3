@@ -12,7 +12,7 @@ screenshot = d.screenshot(format='pillow')
 draw = ImageDraw.Draw(screenshot)
 
 # 要标记的坐标
-x, y = 543, 2290
+x, y = 230, 2256
 
 # 画一个红色的圆圈标记这个点
 radius = 20

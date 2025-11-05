@@ -14,6 +14,8 @@ class AndroidController(Controller):
     def __init__(self, adb_path):
         self.adb_path = adb_path
         self.u2_device = None
+        self.device_id = None
+        self.tap_duration_ms = 200  # 默认“点击”持续时长（使用同点 swipe 实现）
         
         # 尝试初始化 uiautomator2
         if U2_AVAILABLE:
@@ -35,9 +37,10 @@ class AndroidController(Controller):
                         devices.append(device_id)
                 
                 if devices:
-                    # 连接到第一个设备
-                    self.u2_device = u2.connect(devices[0])
-                    print(f"✓ uiautomator2 connected to device: {devices[0]}")
+                    # 连接到第一个设备，并记录 device_id（用于 ADB -s 绑定）
+                    self.device_id = devices[0]
+                    self.u2_device = u2.connect(self.device_id)
+                    print(f"✓ uiautomator2 connected to device: {self.device_id}")
                 else:
                     print("Warning: No device found for uiautomator2 connection")
             except Exception as e:
@@ -76,14 +79,14 @@ class AndroidController(Controller):
                 os.makedirs(save_dir, exist_ok=True)
             
             # 删除旧的截图文件
-            rm_command = f"{self.adb_path} shell rm -f /sdcard/screenshot.png"
+            rm_command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell rm -f /sdcard/screenshot.png"
             rm_result = subprocess.run(rm_command, capture_output=True, text=True, shell=True)
             if rm_result.returncode != 0:
                 print(f"Warning: Failed to remove old screenshot: {rm_result.stderr}")
             time.sleep(0.3)
             
             # 截图到设备
-            screencap_command = f"{self.adb_path} shell screencap -p /sdcard/screenshot.png"
+            screencap_command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell screencap -p /sdcard/screenshot.png"
             screencap_result = subprocess.run(screencap_command, capture_output=True, text=True, shell=True)
             if screencap_result.returncode != 0:
                 print(f"Error: screencap command failed: {screencap_result.stderr}")
@@ -91,7 +94,7 @@ class AndroidController(Controller):
             time.sleep(0.5)
             
             # 从设备拉取截图
-            pull_command = f"{self.adb_path} pull /sdcard/screenshot.png \"{save_path}\""
+            pull_command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} pull /sdcard/screenshot.png \"{save_path}\""
             pull_result = subprocess.run(pull_command, capture_output=True, text=True, shell=True)
             if pull_result.returncode != 0:
                 print(f"Error: pull command failed: {pull_result.stderr}")
@@ -113,23 +116,55 @@ class AndroidController(Controller):
         点击屏幕坐标
         优先使用 ADB 命令（更稳定），uiautomator2 作为备用
         """
-        # 方法1: 使用 ADB 命令点击（主要方案，更稳定）
+        # 方法1: 使用 ADB 短时同点 swipe（更稳，部分设备对 tap 边缘/底部不灵敏）
         try:
-            command = self.adb_path + f" shell input tap {x} {y}"
+            command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell input swipe {x} {y} {x+2} {y+2} {self.tap_duration_ms}"
+            t0 = time.time()
+            print(f"[TAP] ADB swipe-as-tap start: device={self.device_id or 'default'} coord=({x},{y}) dur={self.tap_duration_ms}ms")
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
+            dt = int((time.time() - t0) * 1000)
             if result.returncode == 0:
+                if result.stdout.strip():
+                    print(f"[TAP] ADB success (swipe-as-tap). cost={dt}ms stdout={result.stdout.strip()}")
+                else:
+                    print(f"[TAP] ADB success (swipe-as-tap). cost={dt}ms")
+                time.sleep(0.2)
                 return
             else:
-                print(f"Warning: ADB tap failed, trying uiautomator2")
+                print(f"[TAP] Warning: ADB swipe-as-tap failed. cost={dt}ms code={result.returncode} stderr={result.stderr.strip()}")
+                print(f"[TAP] Fallback to uiautomator2.click")
         except Exception as e:
-            print(f"Warning: ADB tap failed ({e}), trying uiautomator2")
+            print(f"[TAP] Warning: ADB swipe-as-tap raised exception: {e}. Fallback to uiautomator2.click")
         
         # 方法2: 使用 uiautomator2 点击（备用方案）
         if self.u2_device:
             try:
+                t0 = time.time()
+                print(f"[TAP] uiautomator2.click start: device={self.device_id or 'default'} coord=({x},{y})")
                 self.u2_device.click(x, y)
+                dt = int((time.time() - t0) * 1000)
+                print(f"[TAP] uiautomator2.click success. cost={dt}ms")
+                time.sleep(0.2)
             except Exception as e:
-                print(f"Error: uiautomator2 click also failed ({e})")
+                print(f"[TAP] Error: uiautomator2 click failed: {e}")
+
+    def set_tap_duration(self, duration_ms: int):
+        """
+        设置点击（同点 swipe）持续时长，单位毫秒。
+        说明：某些机型/区域对极短点击不敏感，适度增加可提高命中率（如 180~250ms）。
+        """
+        try:
+            duration_ms = int(duration_ms)
+            if duration_ms < 50:
+                print(f"[TAP] Notice: tap duration too small ({duration_ms}ms), adjusted to 50ms")
+                duration_ms = 50
+            if duration_ms > 1000:
+                print(f"[TAP] Notice: tap duration too large ({duration_ms}ms), adjusted to 1000ms")
+                duration_ms = 1000
+            self.tap_duration_ms = duration_ms
+            print(f"[TAP] Tap duration set to {self.tap_duration_ms}ms")
+        except Exception as e:
+            print(f"[TAP] Warning: invalid duration '{duration_ms}', keep {self.tap_duration_ms}ms. err={e}")
 
     def type(self, text):
         """
@@ -255,7 +290,7 @@ class AndroidController(Controller):
         """
         # 方法1: 使用 ADB 命令滑动（主要方案，更稳定）
         try:
-            command = self.adb_path + f" shell input swipe {x1} {y1} {x2} {y2} 500"
+            command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell input swipe {x1} {y1} {x2} {y2} 500"
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 return
@@ -278,7 +313,7 @@ class AndroidController(Controller):
         """
         # 方法1: 使用 ADB 命令按键（主要方案，更稳定）
         try:
-            command = self.adb_path + f" shell input keyevent 4"
+            command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell input keyevent 4"
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 return
@@ -301,7 +336,7 @@ class AndroidController(Controller):
         """
         # 方法1: 使用 ADB 命令按键（主要方案，更稳定）
         try:
-            command = self.adb_path + f" shell am start -a android.intent.action.MAIN -c android.intent.category.HOME"
+            command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell am start -a android.intent.action.MAIN -c android.intent.category.HOME"
             result = subprocess.run(command, capture_output=True, text=True, shell=True)
             if result.returncode == 0:
                 return
@@ -406,7 +441,7 @@ class AndroidController(Controller):
                 print(f"Warning: uiautomator2 app_start failed ({e}), falling back to ADB method")
         
         # 方法2: 使用 ADB 命令打开应用（备用方案）
-        command = self.adb_path + f" shell monkey -p {package_name} -c android.intent.category.LAUNCHER 1"
+            command = f"{self.adb_path}{f' -s {self.device_id}' if self.device_id else ''} shell monkey -p {package_name} -c android.intent.category.LAUNCHER 1"
         result = subprocess.run(command, capture_output=True, text=True, shell=True)
         
         if result.returncode == 0 and "No activities found" not in result.stderr:

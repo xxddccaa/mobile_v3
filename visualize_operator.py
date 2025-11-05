@@ -479,13 +479,35 @@ def find_directory(search_path):
     return None
 
 
-def process_directory(directory_path, output_dir=None, font_path=None):
+def is_already_processed(directory_path):
+    """检查目录是否已经处理过
+    
+    Args:
+        directory_path: 要检查的目录路径
+    
+    Returns:
+        bool: 如果已处理则返回True，否则返回False
+    """
+    visualized_dir = directory_path / 'visualized_responses'
+    if not visualized_dir.exists():
+        return False
+    
+    # 检查是否有生成的图片
+    png_files = list(visualized_dir.glob('step_*_response.png'))
+    return len(png_files) > 0
+
+
+def process_directory(directory_path, output_dir=None, font_path=None, skip_processed=True):
     """处理目录下所有的operator.json文件
     
     Args:
         directory_path: 要处理的目录路径
         output_dir: 输出目录路径，如果为None则使用默认路径（目录下的visualized_responses子目录）
         font_path: 字体文件路径，如果为None则自动查找
+        skip_processed: 是否跳过已处理的目录
+    
+    Returns:
+        bool: 成功返回True，失败返回False
     """
     directory = find_directory(directory_path)
     
@@ -496,7 +518,12 @@ def process_directory(directory_path, output_dir=None, font_path=None):
         print("1. 请使用绝对路径")
         print("2. 或者使用相对路径，如 'logs/20251103_100240_...'")
         print("3. 或者只输入目录名的一部分进行匹配")
-        return
+        return False
+    
+    # 检查是否已经处理过
+    if skip_processed and is_already_processed(directory):
+        print(f"跳过已处理的目录: {directory.name}")
+        return True
     
     print(f"处理目录: {directory.absolute()}")
     
@@ -518,12 +545,12 @@ def process_directory(directory_path, output_dir=None, font_path=None):
                     break
             else:
                 print("错误：找不到字体文件 Arial-Unicode-MS.ttf")
-                return
+                return False
     else:
         font_path = Path(font_path)
         if not font_path.exists():
             print(f"错误：指定的字体文件不存在: {font_path}")
-            return
+            return False
     
     print(f"使用字体文件: {font_path.absolute()}")
     
@@ -539,6 +566,10 @@ def process_directory(directory_path, output_dir=None, font_path=None):
     # 查找所有step目录
     step_dirs = sorted([d for d in directory.iterdir() if d.is_dir() and d.name.startswith('step_')],
                        key=lambda x: int(x.name.split('_')[1]) if x.name.split('_')[1].isdigit() else 999)
+    
+    if not step_dirs:
+        print(f"警告：在 {directory} 中没有找到 step_ 开头的子目录")
+        return False
     
     processed_count = 0
     
@@ -594,6 +625,79 @@ def process_directory(directory_path, output_dir=None, font_path=None):
     
     print(f"\n完成！共处理 {processed_count} 个文件")
     print(f"所有结果图片已保存到: {output_dir.absolute()}")
+    return True
+
+
+def process_batch_directories(parent_dir, font_path=None, skip_processed=True):
+    """批量处理父目录下的所有子目录
+    
+    Args:
+        parent_dir: 父目录路径（例如 logs 目录）
+        font_path: 字体文件路径，如果为None则自动查找
+        skip_processed: 是否跳过已处理的目录
+    """
+    parent_path = Path(parent_dir)
+    
+    if not parent_path.exists():
+        print(f"错误：父目录不存在: {parent_dir}")
+        return
+    
+    if not parent_path.is_dir():
+        print(f"错误：指定的路径不是目录: {parent_dir}")
+        return
+    
+    print(f"开始批量处理目录: {parent_path.absolute()}")
+    print(f"跳过已处理: {'是' if skip_processed else '否'}")
+    print("=" * 80)
+    
+    # 获取所有子目录（按名称排序）
+    subdirs = sorted([d for d in parent_path.iterdir() if d.is_dir()])
+    
+    if not subdirs:
+        print(f"警告：在 {parent_path} 中没有找到子目录")
+        return
+    
+    print(f"找到 {len(subdirs)} 个子目录\n")
+    
+    total_count = len(subdirs)
+    success_count = 0
+    skipped_count = 0
+    failed_count = 0
+    
+    for idx, subdir in enumerate(subdirs, 1):
+        print(f"\n[{idx}/{total_count}] 处理: {subdir.name}")
+        print("-" * 80)
+        
+        # 检查是否包含 step_ 子目录（快速判断是否为有效的任务目录）
+        has_step_dirs = any(d.is_dir() and d.name.startswith('step_') for d in subdir.iterdir())
+        
+        if not has_step_dirs:
+            print(f"跳过：目录中没有 step_ 子目录")
+            skipped_count += 1
+            continue
+        
+        # 处理目录
+        result = process_directory(subdir, None, font_path, skip_processed)
+        
+        if result:
+            if skip_processed and is_already_processed(subdir):
+                # 如果是因为已处理而成功，计入跳过数
+                if not any(d.is_dir() and d.name.startswith('step_') for d in subdir.iterdir()):
+                    skipped_count += 1
+                else:
+                    success_count += 1
+            else:
+                success_count += 1
+        else:
+            failed_count += 1
+    
+    print("\n" + "=" * 80)
+    print("批量处理完成！")
+    print(f"总计: {total_count} 个目录")
+    print(f"成功: {success_count} 个")
+    print(f"跳过: {skipped_count} 个")
+    print(f"失败: {failed_count} 个")
+    print("=" * 80)
 
 
 if __name__ == '__main__':
@@ -609,10 +713,16 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
+  # 单个目录处理
   python visualize_operator.py "logs/20251103_100240_帮我整理所有与'黄金"
   python visualize_operator.py "logs/20251103_100240_帮我整理所有与'黄金" --output "output_images"
   python visualize_operator.py "logs/20251103_100240_帮我整理所有与'黄金" --font "fonts/Arial-Unicode-MS.ttf"
-
+  
+  # 批量处理 logs 目录下所有子目录
+  python visualize_operator.py logs --batch
+  python visualize_operator.py "D:/path/to/logs" --batch
+  python visualize_operator.py logs --batch --no-skip
+  
 结果图片默认保存在: <输入目录>/visualized_responses/
         """
     )
@@ -620,14 +730,20 @@ if __name__ == '__main__':
     parser.add_argument(
         'directory',
         type=str,
-        help='要处理的目录路径（包含step_X子目录的目录）'
+        help='要处理的目录路径（包含step_X子目录的目录，或使用 --batch 模式时为父目录）'
+    )
+    
+    parser.add_argument(
+        '-b', '--batch',
+        action='store_true',
+        help='批量处理模式：处理指定目录下的所有子目录'
     )
     
     parser.add_argument(
         '-o', '--output',
         type=str,
         default=None,
-        help='输出目录路径（默认：<输入目录>/visualized_responses/）'
+        help='输出目录路径（默认：<输入目录>/visualized_responses/，批量模式下不可用）'
     )
     
     parser.add_argument(
@@ -637,8 +753,24 @@ if __name__ == '__main__':
         help='字体文件路径（默认：自动查找工程目录下的Arial-Unicode-MS.ttf）'
     )
     
+    parser.add_argument(
+        '--no-skip',
+        action='store_true',
+        help='不跳过已处理的目录（默认会跳过已有 visualized_responses 的目录）'
+    )
+    
     args = parser.parse_args()
     
-    # 处理目录
-    process_directory(args.directory, args.output, args.font)
+    # 根据模式处理
+    if args.batch:
+        # 批量处理模式
+        if args.output:
+            print("警告：批量模式下不支持 --output 参数，将忽略")
+        
+        skip_processed = not args.no_skip
+        process_batch_directories(args.directory, args.font, skip_processed)
+    else:
+        # 单个目录处理模式
+        skip_processed = not args.no_skip
+        process_directory(args.directory, args.output, args.font, skip_processed)
 
